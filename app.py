@@ -39,7 +39,12 @@ def get_sftp_connection():
         ssh = paramiko.SSHClient()
         ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
 
-        private_key = paramiko.RSAKey.from_private_key_file(SFTP_CONFIG['key_path'])
+        # Load key from env variable (Vercel) or fall back to local file
+        key_content = os.environ.get('SFTP_PRIVATE_KEY')
+        if key_content:
+            private_key = paramiko.RSAKey.from_private_key(io.StringIO(key_content))
+        else:
+            private_key = paramiko.RSAKey.from_private_key_file(SFTP_CONFIG['key_path'])
 
         ssh.connect(
             hostname=SFTP_CONFIG['hostname'],
