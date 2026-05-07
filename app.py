@@ -42,6 +42,8 @@ def get_sftp_connection():
         # Load key from env variable (Vercel) or fall back to local file
         key_content = os.environ.get('SFTP_PRIVATE_KEY')
         if key_content:
+            # Vercel may store newlines as literal \n — normalize them
+            key_content = key_content.replace('\\n', '\n')
             private_key = paramiko.RSAKey.from_private_key(io.StringIO(key_content))
         else:
             private_key = paramiko.RSAKey.from_private_key_file(SFTP_CONFIG['key_path'])
