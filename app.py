@@ -13,7 +13,7 @@ import paramiko
 import pandas as pd
 
 app = Flask(__name__)
-app.secret_key = os.urandom(24)  # Generate random secret key for sessions
+app.secret_key = os.environ.get('FLASK_SECRET_KEY', 'lampsplus-local-dev-key-2026')
 
 # Configuration
 SFTP_CONFIG = {
