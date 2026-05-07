@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dashboard - LampsPlus Validation</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&family=Syne:wght@600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body>
+    <!-- Header -->
+    <header class="header">
+        <div class="header-content">
+            <div class="header-left">
+                <h1 class="logo">LampsPlus</h1>
+                <span class="subtitle">File Validation System</span>
+            </div>
+            <div class="header-right">
+                <span class="user-info">{{ username }}</span>
+                <a href="/logout" class="btn-secondary">Logout</a>
+            </div>
+        </div>
+    </header>
+    
+    <!-- Main Content -->
+    <main class="main-content">
+        <div class="container">
+            <!-- Tabs -->
+            <div class="tabs">
+                <button class="tab-button active" data-tab="mail-validation">
+                    Mail File Validation
+                </button>
+                <button class="tab-button" data-tab="circplan-validation">
+                    CircPlan Validation
+                    <span class="badge">Coming Soon</span>
+                </button>
+            </div>
+            
+            <!-- Tab Content: Mail File Validation -->
+            <div id="mail-validation" class="tab-content active">
+                <div class="section">
+                    <div class="section-header">
+                        <h2>Mail File Validation</h2>
+                        <p>Connect to LP SFTP and validate catalog mail files</p>
+                    </div>
+                    
+                    <div class="sftp-info">
+                        <div class="info-row">
+                            <span class="label">SFTP Host:</span>
+                            <code>ftp1.lampsplus.com:9822</code>
+                        </div>
+                        <div class="info-row">
+                            <span class="label">Directory:</span>
+                            <code>/FromLP/Catalog Mail Files</code>
+                        </div>
+                        <div class="info-row">
+                            <span class="label">Status:</span>
+                            <span id="connectionStatus" class="status-badge">Not Connected</span>
+                        </div>
+                    </div>
+                    
+                    <div class="action-bar">
+                        <button id="loadFilesBtn" class="btn-primary">
+                            <span id="loadFilesText">Load Files from SFTP</span>
+                            <span id="loadFilesLoader" class="loader" style="display: none;"></span>
+                        </button>
+                    </div>
+                    
+                    <!-- Error Display -->
+                    <div id="errorDisplay" class="error-display" style="display: none;"></div>
+                    
+                    <!-- File List -->
+                    <div id="fileListContainer" style="display: none;">
+                        <div class="file-list-header">
+                            <h3>Available Files</h3>
+                            <div class="selection-info">
+                                <span id="selectionCount">0 files selected</span>
+                            </div>
+                        </div>
+                        
+                        <div class="file-list" id="fileList"></div>
+                        
+                        <div class="action-bar">
+                            <button id="proceedBtn" class="btn-success" disabled>
+                                <span id="proceedText">Proceed</span>
+                                <span id="proceedLoader" class="loader" style="display: none;"></span>
+                            </button>
+                        </div>
+                    </div>
+                    
+                    <!-- Results Display -->
+                    <div id="resultsContainer" style="display: none;">
+                        <div class="results-header">
+                            <h3>Processing Results</h3>
+                            <button id="clearResultsBtn" class="btn-secondary">Clear Results</button>
+                        </div>
+                        <div id="resultsContent"></div>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Tab Content: CircPlan Validation -->
+            <div id="circplan-validation" class="tab-content">
+                <div class="section">
+                    <div class="section-header">
+                        <h2>CircPlan Validation</h2>
+                        <p>Coming soon...</p>
+                    </div>
+                    
+                    <div class="coming-soon">
+                        <div class="coming-soon-icon">🚧</div>
+                        <h3>Feature Under Development</h3>
+                        <p>CircPlan validation functionality will be available soon.</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </main>
+    
+    <script src="{{ url_for('static', filename='js/dashboard.js') }}"></script>
+</body>
+</html>
