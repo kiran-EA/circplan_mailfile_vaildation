@@ -610,6 +610,24 @@ button:disabled {
 .stat-ok { color: #059669; }
 .stat-ng { color: #dc2626; }
 
+.first-row-label {
+    font-size: 0.75rem;
+    font-weight: 600;
+    color: var(--gray-500);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    margin-top: 0.75rem;
+    margin-bottom: 0.375rem;
+}
+
+.first-row-grid .first-row-val {
+    background: #f0f9ff;
+    border-color: #bae6fd;
+    color: #0369a1;
+    font-family: var(--font-mono);
+    font-size: 0.75rem;
+}
+
 .processing-status-bar {
     display: flex;
     align-items: center;
