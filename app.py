@@ -348,11 +348,11 @@ def _parse_circplan_content(content_bytes, filename):
     """Parse a CircPlan CSV/TXT content and run QC checks"""
     try:
         try:
-            text = content_bytes.decode('utf-8')
+            text = content_bytes.decode('utf-8-sig')  # strips BOM if present
         except UnicodeDecodeError:
             text = content_bytes.decode('latin-1')
 
-        lines = text.strip().split('\n')
+        lines = [l.rstrip('\r') for l in text.strip().split('\n')]
         if not lines:
             return {'filename': filename, 'header': [], 'row_count': 0, 'status': 'error: empty file'}
 
