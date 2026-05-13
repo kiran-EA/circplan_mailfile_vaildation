@@ -536,24 +536,6 @@ document.addEventListener('DOMContentLoaded', function() {
                     });
                     headerDisplay.appendChild(grid);
 
-                    // First data row
-                    if (file.first_row && file.first_row.length > 0) {
-                        const firstRowLabel = document.createElement('div');
-                        firstRowLabel.className = 'first-row-label';
-                        firstRowLabel.textContent = 'First Record';
-                        headerDisplay.appendChild(firstRowLabel);
-
-                        const firstRowGrid = document.createElement('div');
-                        firstRowGrid.className = 'header-grid first-row-grid';
-                        file.first_row.forEach(val => {
-                            const valDiv = document.createElement('div');
-                            valDiv.className = 'header-col first-row-val';
-                            valDiv.textContent = val || '—';
-                            firstRowGrid.appendChild(valDiv);
-                        });
-                        headerDisplay.appendChild(firstRowGrid);
-                    }
-
                     const stats = document.createElement('div');
                     stats.className = 'stats-row';
                     stats.innerHTML = `

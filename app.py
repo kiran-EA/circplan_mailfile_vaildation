@@ -350,15 +350,6 @@ def process_circplan_file(file_data, filename):
         reader = csv.reader([lines[0]], delimiter=delimiter)
         header = [col.strip() for col in next(reader)]
 
-        # First data row
-        first_row = []
-        if len(lines) > 1:
-            row_reader = csv.reader([lines[1]], delimiter=delimiter)
-            try:
-                first_row = [v.strip() for v in next(row_reader)]
-            except StopIteration:
-                pass
-
         delimiter_display = {
             '|': 'Pipe (|)', ',': 'Comma (,)',
             '\t': 'Tab', ';': 'Semicolon (;)'
@@ -369,7 +360,6 @@ def process_circplan_file(file_data, filename):
             'files': [{
                 'filename': filename,
                 'header': header,
-                'first_row': first_row,
                 'row_count': len(lines),
                 'delimiter': delimiter_display,
                 'columns_valid': None,
