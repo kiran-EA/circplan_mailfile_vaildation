@@ -358,15 +358,23 @@ def _parse_circplan_content(content_bytes, filename):
 
         delimiter = detect_delimiter(lines[0])
         reader = csv.reader([lines[0]], delimiter=delimiter)
-        header = [col.strip() for col in next(reader)]
 
-        columns_valid = header == CIRCPLAN_EXPECTED_COLUMNS
+        def _norm(c):
+            # collapse all whitespace variants (including non-breaking space) to single space
+            return ' '.join(c.replace('\xa0', ' ').split())
+
+        raw_header = [col.strip() for col in next(reader)]
+        header_norm = [_norm(col) for col in raw_header]
+        expected_norm = [_norm(col) for col in CIRCPLAN_EXPECTED_COLUMNS]
+        columns_valid = header_norm == expected_norm
+        header = raw_header  # keep original for display
 
         # Key Code null %
         keycode_null_pct = None
         data_rows = len(lines) - 1
-        if data_rows > 0 and 'Key Code' in header:
-            kc_idx = header.index('Key Code')
+        kc_key = next((c for c in header if _norm(c) == _norm('Key Code')), None)
+        if data_rows > 0 and kc_key:
+            kc_idx = header.index(kc_key)
             kc_null = 0
             for line in lines[1:]:
                 rdr = csv.reader([line], delimiter=delimiter)
