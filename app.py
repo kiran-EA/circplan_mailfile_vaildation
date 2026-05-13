@@ -532,6 +532,62 @@ def api_circplan_stream():
                     headers={'Cache-Control': 'no-cache', 'X-Accel-Buffering': 'no'})
 
 
+@app.route('/api/mailfile/start-script', methods=['POST'])
+def api_mailfile_start_script():
+    if 'logged_in' not in session:
+        return jsonify({'error': 'Not authenticated'}), 401
+    session['mf_script_params'] = request.json
+    return jsonify({'ok': True})
+
+
+@app.route('/api/mailfile/stream')
+def api_mailfile_stream():
+    if 'logged_in' not in session:
+        return Response('data: {"line":"Not authenticated","done":true}\n\n',
+                        content_type='text/event-stream')
+
+    params    = session.get('mf_script_params', {})
+    camp_name = params.get('camp_name', '').strip()
+
+    def generate():
+        ssh = None
+        try:
+            yield f"data: {json.dumps({'line': '--- Connecting to server 54.176.67.86 ...'})}\n\n"
+            ssh = paramiko.SSHClient()
+            ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+            ssh.connect(CIRCPLAN_SERVER['hostname'], port=CIRCPLAN_SERVER['port'],
+                        username=CIRCPLAN_SERVER['username'],
+                        password=CIRCPLAN_SERVER['password'], timeout=30)
+
+            yield f"data: {json.dumps({'line': '--- Connected. Launching mail_file_load.sh ...'})}\n\n"
+
+            cmd = (f"cd {CIRCPLAN_SERVER['script_dir']} && "
+                   f"export camp_name={camp_name!r} && sh mail_file_load.sh")
+            stdin, stdout, stderr = ssh.exec_command(cmd, timeout=3600)
+            stdin.channel.shutdown_write()
+
+            for line in iter(stdout.readline, ''):
+                if line:
+                    yield f"data: {json.dumps({'line': line.rstrip()})}\n\n"
+            for line in iter(stderr.readline, ''):
+                if line:
+                    yield f"data: {json.dumps({'line': '[ERR] ' + line.rstrip()})}\n\n"
+
+            exit_code = stdout.channel.recv_exit_status()
+            status = 'completed successfully' if exit_code == 0 else f'exited with code {exit_code}'
+            yield f"data: {json.dumps({'line': f'--- Script {status}', 'done': True})}\n\n"
+        except Exception as e:
+            yield f"data: {json.dumps({'line': f'ERROR: {str(e)}', 'done': True})}\n\n"
+        finally:
+            if ssh:
+                try: ssh.close()
+                except: pass
+
+    return Response(stream_with_context(generate()),
+                    content_type='text/event-stream',
+                    headers={'Cache-Control': 'no-cache', 'X-Accel-Buffering': 'no'})
+
+
 # Set response headers for security
 @app.after_request
 def add_security_headers(response):

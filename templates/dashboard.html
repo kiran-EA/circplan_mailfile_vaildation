@@ -213,6 +213,33 @@
         </div>
     </div>
 
+    <!-- Mail File Load Modal -->
+    <div id="mfLoadModal" class="modal-overlay" style="display:none;">
+        <div class="modal-box">
+            <div class="modal-header">
+                <h3>Run Mail File Load Script</h3>
+                <button id="mfModalClose" class="modal-close">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div id="mfFormSection">
+                    <div class="form-group">
+                        <label class="form-label">Campaign Name</label>
+                        <input type="text" id="mfCampName" class="form-input" placeholder="e.g. 2026SPRING">
+                    </div>
+                    <button id="mfRunScriptBtn" class="btn-primary" style="width:100%;margin-top:1rem;">
+                        Run Script
+                    </button>
+                </div>
+                <div id="mfLogSection" style="display:none;">
+                    <div class="log-toolbar">
+                        <span id="mfLogStatus" class="log-status-running">Running...</span>
+                    </div>
+                    <div class="log-terminal" id="mfLogTerminal"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <script src="{{ url_for('static', filename='js/dashboard.js') }}"></script>
 </body>
 </html>

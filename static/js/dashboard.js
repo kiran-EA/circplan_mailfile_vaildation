@@ -311,24 +311,100 @@ document.addEventListener('DOMContentLoaded', function() {
                         `;
                         headerDisplay.appendChild(statsRow);
 
+                        // Load button — only if all 4 rules pass
+                        const allMfPass = rowsPass && delimPass && custnoPass && keycodePass;
+                        if (allMfPass) {
+                            const loadWrap = document.createElement('div');
+                            loadWrap.style.marginTop = '1rem';
+                            const loadBtn = document.createElement('button');
+                            loadBtn.className = 'btn-success mf-load-trigger';
+                            loadBtn.style.width = '100%';
+                            loadBtn.textContent = 'Load';
+                            loadWrap.appendChild(loadBtn);
+                            headerDisplay.appendChild(loadWrap);
+                        }
+
                         fileResult.appendChild(headerDisplay);
                     }
-                    
+
                     body.appendChild(fileResult);
                 });
-                
+
                 card.appendChild(header);
                 card.appendChild(body);
-                
+
                 resultsContent.appendChild(card);
             }
         });
     }
-    
+
     // Clear results
     clearResultsBtn.addEventListener('click', function() {
         resultsContainer.style.display = 'none';
         resultsContent.innerHTML = '';
+    });
+
+    // ==================== Mail File Load Modal ====================
+    const mfLoadModal    = document.getElementById('mfLoadModal');
+    const mfModalCloseBtn = document.getElementById('mfModalClose');
+    const mfRunScriptBtn  = document.getElementById('mfRunScriptBtn');
+
+    resultsContent.addEventListener('click', function (e) {
+        const btn = e.target.closest('.mf-load-trigger');
+        if (!btn) return;
+        mfLoadModal.style.display = 'flex';
+        document.getElementById('mfFormSection').style.display = 'block';
+        document.getElementById('mfLogSection').style.display = 'none';
+    });
+
+    mfModalCloseBtn.addEventListener('click', function () {
+        mfLoadModal.style.display = 'none';
+    });
+
+    mfLoadModal.addEventListener('click', function (e) {
+        if (e.target === mfLoadModal) mfLoadModal.style.display = 'none';
+    });
+
+    mfRunScriptBtn.addEventListener('click', async function () {
+        const campName = document.getElementById('mfCampName').value.trim();
+        if (!campName) { alert('Please enter a Campaign Name.'); return; }
+
+        const res = await fetch('/api/mailfile/start-script', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ camp_name: campName })
+        });
+        const data = await res.json();
+        if (data.error) { alert('Error: ' + data.error); return; }
+
+        document.getElementById('mfFormSection').style.display = 'none';
+        const logSection  = document.getElementById('mfLogSection');
+        logSection.style.display = 'block';
+        const logTerminal = document.getElementById('mfLogTerminal');
+        const logStatus   = document.getElementById('mfLogStatus');
+        logTerminal.innerHTML = '';
+        logStatus.className = 'log-status-running';
+        logStatus.textContent = 'Running...';
+
+        const evtSource = new EventSource('/api/mailfile/stream');
+        evtSource.onmessage = function (e) {
+            const msg = JSON.parse(e.data);
+            const line = document.createElement('div');
+            line.className = 'log-line';
+            line.textContent = msg.line;
+            logTerminal.appendChild(line);
+            logTerminal.scrollTop = logTerminal.scrollHeight;
+            if (msg.done) {
+                evtSource.close();
+                logStatus.className = 'log-status-done';
+                logStatus.textContent = 'Done';
+            }
+        };
+        evtSource.onerror = function () {
+            evtSource.close();
+            logStatus.className = 'log-status-error';
+            logStatus.textContent = 'Connection error';
+        };
     });
     
     // Utility function to format bytes
