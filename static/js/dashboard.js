@@ -339,4 +339,221 @@ document.addEventListener('DOMContentLoaded', function() {
         const i = Math.floor(Math.log(bytes) / Math.log(k));
         return Math.round(bytes / Math.pow(k, i) * 100) / 100 + ' ' + sizes[i];
     }
+
+    // ==================== CIRCPLAN TAB ====================
+
+    const cpLoadFilesBtn      = document.getElementById('cpLoadFilesBtn');
+    const cpLoadFilesText     = document.getElementById('cpLoadFilesText');
+    const cpLoadFilesLoader   = document.getElementById('cpLoadFilesLoader');
+    const cpConnectionStatus  = document.getElementById('cpConnectionStatus');
+    const cpErrorDisplay      = document.getElementById('cpErrorDisplay');
+    const cpFileListContainer = document.getElementById('cpFileListContainer');
+    const cpFileList          = document.getElementById('cpFileList');
+    const cpSelectionCount    = document.getElementById('cpSelectionCount');
+    const cpProceedBtn        = document.getElementById('cpProceedBtn');
+    const cpProceedText       = document.getElementById('cpProceedText');
+    const cpProceedLoader     = document.getElementById('cpProceedLoader');
+    const cpResultsContainer  = document.getElementById('cpResultsContainer');
+    const cpResultsContent    = document.getElementById('cpResultsContent');
+    const cpClearResultsBtn   = document.getElementById('cpClearResultsBtn');
+
+    let cpSelectedFiles = [];
+    let cpSelectedSizes = {};
+
+    cpLoadFilesBtn.addEventListener('click', async function () {
+        cpLoadFilesText.textContent = 'Connecting to SFTP...';
+        cpLoadFilesLoader.style.display = 'inline-block';
+        cpLoadFilesBtn.disabled = true;
+        cpErrorDisplay.style.display = 'none';
+        cpFileListContainer.style.display = 'none';
+
+        try {
+            const response = await fetch('/api/circplan/list-files');
+            const data = await response.json();
+
+            if (data.error) {
+                cpErrorDisplay.textContent = data.error;
+                cpErrorDisplay.style.display = 'block';
+                cpConnectionStatus.textContent = 'Connection Failed';
+                cpConnectionStatus.classList.remove('connected');
+            } else {
+                cpDisplayFiles(data.files);
+                cpConnectionStatus.textContent = 'Connected';
+                cpConnectionStatus.classList.add('connected');
+                cpFileListContainer.style.display = 'block';
+            }
+        } catch (err) {
+            cpErrorDisplay.textContent = 'Error: ' + err.message;
+            cpErrorDisplay.style.display = 'block';
+            cpConnectionStatus.textContent = 'Connection Failed';
+            cpConnectionStatus.classList.remove('connected');
+        } finally {
+            cpLoadFilesText.textContent = 'Load Files from SFTP';
+            cpLoadFilesLoader.style.display = 'none';
+            cpLoadFilesBtn.disabled = false;
+        }
+    });
+
+    function cpDisplayFiles(files) {
+        cpFileList.innerHTML = '';
+        cpSelectedFiles = [];
+        if (!files || files.length === 0) {
+            cpFileList.innerHTML = '<div style="padding:2rem;text-align:center;color:var(--gray-600);">No files found</div>';
+            return;
+        }
+        files.forEach(file => {
+            const item = document.createElement('div');
+            item.className = 'file-item';
+
+            const cb = document.createElement('input');
+            cb.type = 'checkbox';
+            cb.value = file.name;
+            cb.dataset.size = file.size || 0;
+            cb.addEventListener('change', cpUpdateSelection);
+
+            const info = document.createElement('div');
+            info.className = 'file-info';
+
+            const name = document.createElement('div');
+            name.className = 'file-name';
+            name.textContent = file.name;
+
+            const meta = document.createElement('div');
+            meta.className = 'file-meta';
+            meta.innerHTML = `<span>Size: ${formatBytes(file.size)}</span><span>Modified: ${file.modified}</span>`;
+
+            info.appendChild(name);
+            info.appendChild(meta);
+            item.appendChild(cb);
+            item.appendChild(info);
+            cpFileList.appendChild(item);
+        });
+        cpUpdateSelection();
+    }
+
+    function cpUpdateSelection() {
+        const checked = cpFileList.querySelectorAll('input[type="checkbox"]:checked');
+        cpSelectedFiles = Array.from(checked).map(cb => cb.value);
+        cpSelectedSizes = {};
+        checked.forEach(cb => { cpSelectedSizes[cb.value] = parseInt(cb.dataset.size) || 0; });
+        cpSelectionCount.textContent = `${cpSelectedFiles.length} file${cpSelectedFiles.length !== 1 ? 's' : ''} selected`;
+        cpProceedBtn.disabled = cpSelectedFiles.length === 0;
+    }
+
+    cpProceedBtn.addEventListener('click', async function () {
+        if (cpSelectedFiles.length === 0) return;
+
+        cpProceedText.textContent = 'Processing for Result...';
+        cpProceedLoader.style.display = 'inline-block';
+        cpProceedBtn.disabled = true;
+
+        const totalBytes = Object.values(cpSelectedSizes).reduce((a, b) => a + b, 0);
+        const estSecs = estimateSeconds(totalBytes);
+        let cpStatusBar = document.getElementById('cpProcessingStatusBar');
+        if (!cpStatusBar) {
+            cpStatusBar = document.createElement('div');
+            cpStatusBar.id = 'cpProcessingStatusBar';
+            cpStatusBar.className = 'processing-status-bar';
+            cpProceedBtn.parentNode.insertBefore(cpStatusBar, cpProceedBtn.nextSibling);
+        }
+        let elapsed = 0;
+        cpStatusBar.innerHTML = `
+            <span class="proc-label">Estimated: <strong>~${formatTime(estSecs)}</strong></span>
+            <span class="proc-sep">·</span>
+            <span class="proc-label">Elapsed: <strong id="cpElapsedTimer">0s</strong></span>`;
+        cpStatusBar.style.display = 'flex';
+        const timer = setInterval(() => {
+            elapsed++;
+            const el = document.getElementById('cpElapsedTimer');
+            if (el) el.textContent = formatTime(elapsed);
+        }, 1000);
+
+        try {
+            const response = await fetch('/api/circplan/process-files', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ files: cpSelectedFiles })
+            });
+            const data = await response.json();
+            cpDisplayResults(data.results);
+            cpResultsContainer.style.display = 'block';
+            cpResultsContainer.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        } catch (err) {
+            alert('Error: ' + err.message);
+        } finally {
+            clearInterval(timer);
+            cpStatusBar.style.display = 'none';
+            cpProceedText.textContent = 'Proceed';
+            cpProceedLoader.style.display = 'none';
+            cpProceedBtn.disabled = false;
+        }
+    });
+
+    function cpDisplayResults(results) {
+        cpResultsContent.innerHTML = '';
+        results.forEach(result => {
+            if (result.error) {
+                const card = document.createElement('div');
+                card.className = 'result-card';
+                card.innerHTML = `<div class="result-header"><h4>Error</h4></div>
+                    <div class="result-body"><div class="error-display" style="display:block;">${result.error}</div></div>`;
+                cpResultsContent.appendChild(card);
+                return;
+            }
+
+            const card = document.createElement('div');
+            card.className = 'result-card';
+            card.innerHTML = `<div class="result-header"><h4>${result.zip_file}</h4></div>`;
+
+            const body = document.createElement('div');
+            body.className = 'result-body';
+
+            result.files.forEach(file => {
+                const fileResult = document.createElement('div');
+                fileResult.className = 'file-result';
+
+                const fileHeader = document.createElement('div');
+                fileHeader.className = 'file-result-header';
+                fileHeader.innerHTML = `
+                    <div class="file-result-name">${file.filename}</div>
+                    <div class="${file.status === 'success' ? 'status-success' : 'status-error'}">
+                        ${file.status === 'success' ? '✓ Success' : '✗ ' + file.status}
+                    </div>`;
+                fileResult.appendChild(fileHeader);
+
+                if (file.status === 'success' && file.header && file.header.length > 0) {
+                    const headerDisplay = document.createElement('div');
+                    headerDisplay.className = 'header-display';
+
+                    const grid = document.createElement('div');
+                    grid.className = 'header-grid';
+                    file.header.forEach(col => {
+                        const colDiv = document.createElement('div');
+                        colDiv.className = 'header-col';
+                        colDiv.textContent = col;
+                        grid.appendChild(colDiv);
+                    });
+                    headerDisplay.appendChild(grid);
+
+                    const stats = document.createElement('div');
+                    stats.className = 'stats-row';
+                    stats.innerHTML = `
+                        <span class="stat-item">Total rows: <strong>${file.row_count}</strong></span>
+                        <span class="stat-sep">|</span>
+                        <span class="stat-item">Delimiter: <strong>${file.delimiter || 'Unknown'}</strong></span>`;
+                    headerDisplay.appendChild(stats);
+                    fileResult.appendChild(headerDisplay);
+                }
+                body.appendChild(fileResult);
+            });
+
+            card.appendChild(body);
+            cpResultsContent.appendChild(card);
+        });
+    }
+
+    cpClearResultsBtn.addEventListener('click', function () {
+        cpResultsContainer.style.display = 'none';
+        cpResultsContent.innerHTML = '';
+    });
 });

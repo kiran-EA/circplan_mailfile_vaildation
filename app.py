@@ -311,16 +311,105 @@ def api_process_files():
     """API endpoint to process selected files"""
     if 'logged_in' not in session:
         return jsonify({'error': 'Not authenticated'}), 401
-    
+
     data = request.json
     files = data.get('files', [])
     remote_path = data.get('path', '/FromLP/Catalog Mail Files')
-    
+
     results = []
     for filename in files:
         result = download_and_process_file(remote_path, filename)
         results.append(result)
-    
+
+    return jsonify({'results': results})
+
+
+# ==================== CIRCPLAN ROUTES ====================
+
+def process_circplan_file(file_data, filename):
+    """Extract headers from a CircPlan file (ZIP or CSV/TXT)"""
+    try:
+        # Try as ZIP first
+        if filename.lower().endswith('.zip') or zipfile.is_zipfile(io.BytesIO(file_data.read())):
+            file_data.seek(0)
+            return process_zip_file(file_data, filename)
+
+        file_data.seek(0)
+        content = file_data.read()
+
+        try:
+            text = content.decode('utf-8')
+        except UnicodeDecodeError:
+            text = content.decode('latin-1')
+
+        lines = text.strip().split('\n')
+        if not lines:
+            return {'error': 'Empty file'}
+
+        delimiter = detect_delimiter(lines[0])
+        reader = csv.reader([lines[0]], delimiter=delimiter)
+        header = [col.strip() for col in next(reader)]
+
+        delimiter_display = {
+            '|': 'Pipe (|)', ',': 'Comma (,)',
+            '\t': 'Tab', ';': 'Semicolon (;)'
+        }.get(delimiter, delimiter)
+
+        return {
+            'zip_file': filename,
+            'files': [{
+                'filename': filename,
+                'header': header,
+                'row_count': len(lines),
+                'delimiter': delimiter_display,
+                'columns_valid': None,
+                'custno_null_pct': None,
+                'keycode_null_pct': None,
+                'status': 'success'
+            }]
+        }
+    except Exception as e:
+        return {'error': f'Processing Error: {str(e)}'}
+
+
+def circplan_download_and_process(filename, retries=3):
+    """Download and process a CircPlan file from SFTP"""
+    remote_path = '/FromLP/Circ Plans'
+    last_error = None
+    for attempt in range(1, retries + 1):
+        ssh, sftp = None, None
+        try:
+            ssh, sftp = get_sftp_connection()
+            file_data = io.BytesIO()
+            sftp.getfo(f"{remote_path}/{filename}", file_data)
+            file_data.seek(0)
+            return process_circplan_file(file_data, filename)
+        except Exception as e:
+            last_error = str(e)
+        finally:
+            try:
+                if sftp: sftp.close()
+                if ssh: ssh.close()
+            except Exception:
+                pass
+    return {'error': f'Download Error (after {retries} attempts): {last_error}'}
+
+
+@app.route('/api/circplan/list-files')
+def api_circplan_list_files():
+    if 'logged_in' not in session:
+        return jsonify({'error': 'Not authenticated'}), 401
+    result = list_sftp_files('/FromLP/Circ Plans')
+    return jsonify(result)
+
+
+@app.route('/api/circplan/process-files', methods=['POST'])
+def api_circplan_process_files():
+    if 'logged_in' not in session:
+        return jsonify({'error': 'Not authenticated'}), 401
+    data = request.json
+    files = data.get('files', [])
+    results = [circplan_download_and_process(f) for f in files]
     return jsonify({'results': results})
 
 
