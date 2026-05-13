@@ -525,7 +525,44 @@ document.addEventListener('DOMContentLoaded', function() {
                     const headerDisplay = document.createElement('div');
                     headerDisplay.className = 'header-display';
 
-                    // Header columns
+                    // QC checks
+                    const delimPass  = (file.delimiter || '').indexOf('Pipe') !== -1;
+                    const colsPass   = file.columns_valid === true;
+                    const keyCodeVal = (file.keycode_null_pct !== null && file.keycode_null_pct !== undefined) ? file.keycode_null_pct : null;
+                    const keyPass    = keyCodeVal !== null ? keyCodeVal <= 5 : true;
+                    const allPass    = delimPass && colsPass && keyPass;
+
+                    function rIcon(pass) {
+                        return `<span class="rule-icon ${pass ? 'rule-pass' : 'rule-fail'}">${pass ? '✓' : '✗'}</span>`;
+                    }
+
+                    const ruleBox = document.createElement('div');
+                    ruleBox.className = `rule-box ${allPass ? 'rule-box-pass' : 'rule-box-fail'}`;
+                    ruleBox.innerHTML = `
+                        <div class="rule-title">
+                            QC Validation
+                            <span class="${allPass ? 'badge-pass' : 'badge-fail'}">${allPass ? 'ALL PASS' : 'FAILED'}</span>
+                        </div>
+                        <div class="rule-list">
+                            <div class="rule-row">
+                                ${rIcon(delimPass)}
+                                <span class="rule-label">Delimiter is Pipe (|)</span>
+                                <span class="${delimPass ? 'rule-detail' : 'rule-detail-fail'}">${file.delimiter || 'Unknown'}</span>
+                            </div>
+                            <div class="rule-row">
+                                ${rIcon(colsPass)}
+                                <span class="rule-label">Column names match</span>
+                                <span class="${colsPass ? 'rule-detail' : 'rule-detail-fail'}">${colsPass ? 'Exact match' : 'Mismatch'}</span>
+                            </div>
+                            <div class="rule-row">
+                                ${rIcon(keyPass)}
+                                <span class="rule-label">Key Code null ≤ 5%</span>
+                                <span class="${keyPass ? 'rule-detail' : 'rule-detail-fail'}">${keyCodeVal !== null ? keyCodeVal + '%' : 'N/A'}</span>
+                            </div>
+                        </div>`;
+                    headerDisplay.appendChild(ruleBox);
+
+                    // Header columns grid
                     const grid = document.createElement('div');
                     grid.className = 'header-grid';
                     file.header.forEach(col => {
@@ -536,13 +573,30 @@ document.addEventListener('DOMContentLoaded', function() {
                     });
                     headerDisplay.appendChild(grid);
 
+                    // Stats row
                     const stats = document.createElement('div');
                     stats.className = 'stats-row';
                     stats.innerHTML = `
                         <span class="stat-item">Total rows: <strong>${file.row_count}</strong></span>
                         <span class="stat-sep">|</span>
-                        <span class="stat-item">Delimiter: <strong>${file.delimiter || 'Unknown'}</strong></span>`;
+                        <span class="stat-item">Delimiter: <strong class="${delimPass ? 'stat-ok' : 'stat-ng'}">${file.delimiter || 'Unknown'}</strong></span>
+                        <span class="stat-sep">|</span>
+                        <span class="stat-item">Key Code null: <strong class="${keyPass ? 'stat-ok' : 'stat-ng'}">${keyCodeVal !== null ? keyCodeVal + '%' : 'N/A'}</strong> <span class="${keyPass ? 'badge-pass' : 'badge-fail'}" style="font-size:0.7rem;padding:0.1rem 0.45rem;">${keyPass ? 'PASS' : 'FAIL'}</span></span>`;
                     headerDisplay.appendChild(stats);
+
+                    // Load button — only if all QC rules pass
+                    if (allPass) {
+                        const loadWrap = document.createElement('div');
+                        loadWrap.style.marginTop = '1rem';
+                        const loadBtn = document.createElement('button');
+                        loadBtn.className = 'btn-success cp-load-trigger';
+                        loadBtn.dataset.filename = file.filename;
+                        loadBtn.style.width = '100%';
+                        loadBtn.textContent = 'Load';
+                        loadWrap.appendChild(loadBtn);
+                        headerDisplay.appendChild(loadWrap);
+                    }
+
                     fileResult.appendChild(headerDisplay);
                 }
                 body.appendChild(fileResult);
@@ -556,5 +610,94 @@ document.addEventListener('DOMContentLoaded', function() {
     cpClearResultsBtn.addEventListener('click', function () {
         cpResultsContainer.style.display = 'none';
         cpResultsContent.innerHTML = '';
+    });
+
+    // ==================== CircPlan Load Modal ====================
+    const cpLoadModal    = document.getElementById('cpLoadModal');
+    const cpModalCloseBtn = document.getElementById('cpModalClose');
+    const cpZipTypeSelect = document.getElementById('cpZipType');
+    const cpRunScriptBtn  = document.getElementById('cpRunScriptBtn');
+
+    // Delegate Load button clicks from results
+    cpResultsContent.addEventListener('click', function (e) {
+        const btn = e.target.closest('.cp-load-trigger');
+        if (!btn) return;
+        cpLoadModal.style.display = 'flex';
+        document.getElementById('cpFormSection').style.display = 'block';
+        document.getElementById('cpLogSection').style.display = 'none';
+    });
+
+    cpModalCloseBtn.addEventListener('click', function () {
+        cpLoadModal.style.display = 'none';
+    });
+
+    cpLoadModal.addEventListener('click', function (e) {
+        if (e.target === cpLoadModal) cpLoadModal.style.display = 'none';
+    });
+
+    cpZipTypeSelect.addEventListener('change', function () {
+        if (cpZipTypeSelect.value === 'combined') {
+            document.getElementById('cpMailFileSingleGroup').style.display = 'block';
+            document.getElementById('cpMailFileMultiGroup').style.display = 'none';
+        } else {
+            document.getElementById('cpMailFileSingleGroup').style.display = 'none';
+            document.getElementById('cpMailFileMultiGroup').style.display = 'block';
+        }
+    });
+
+    cpRunScriptBtn.addEventListener('click', async function () {
+        const campName    = document.getElementById('cpCampName').value.trim();
+        const isNtf       = document.getElementById('cpIsNtf').value;
+        const keycodeFile = document.getElementById('cpKeycodeFile').value.trim();
+        const zipType     = cpZipTypeSelect.value;
+        const mailFile    = document.getElementById('cpMailFile').value.trim();
+        const mailFiles   = document.getElementById('cpMailFiles').value.trim();
+
+        if (!campName || !keycodeFile) {
+            alert('Please fill in Campaign Name and Keycode File Name.');
+            return;
+        }
+        const mailFileValue = zipType === 'combined' ? mailFile : mailFiles;
+        if (!mailFileValue) {
+            alert('Please fill in the mail file name(s).');
+            return;
+        }
+
+        const res = await fetch('/api/circplan/start-script', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ camp_name: campName, is_ntf: isNtf, keycode_file: keycodeFile, zip_type: zipType, mail_file: mailFileValue })
+        });
+        const data = await res.json();
+        if (data.error) { alert('Error: ' + data.error); return; }
+
+        document.getElementById('cpFormSection').style.display = 'none';
+        const logSection  = document.getElementById('cpLogSection');
+        logSection.style.display = 'block';
+        const logTerminal = document.getElementById('cpLogTerminal');
+        const logStatus   = document.getElementById('cpLogStatus');
+        logTerminal.innerHTML = '';
+        logStatus.className = 'log-status-running';
+        logStatus.textContent = 'Running...';
+
+        const evtSource = new EventSource('/api/circplan/stream');
+        evtSource.onmessage = function (e) {
+            const msg = JSON.parse(e.data);
+            const line = document.createElement('div');
+            line.className = 'log-line';
+            line.textContent = msg.line;
+            logTerminal.appendChild(line);
+            logTerminal.scrollTop = logTerminal.scrollHeight;
+            if (msg.done) {
+                evtSource.close();
+                logStatus.className = 'log-status-done';
+                logStatus.textContent = 'Done';
+            }
+        };
+        evtSource.onerror = function () {
+            evtSource.close();
+            logStatus.className = 'log-status-error';
+            logStatus.textContent = 'Connection error';
+        };
     });
 });

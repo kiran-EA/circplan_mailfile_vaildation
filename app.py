@@ -8,7 +8,8 @@ import io
 import zipfile
 import csv
 from datetime import datetime
-from flask import Flask, render_template, request, jsonify, session, redirect, url_for
+from flask import Flask, render_template, request, jsonify, session, redirect, url_for, Response, stream_with_context
+import json
 import paramiko
 import pandas as pd
 
@@ -326,29 +327,56 @@ def api_process_files():
 
 # ==================== CIRCPLAN ROUTES ====================
 
-def process_circplan_file(file_data, filename):
-    """Extract headers from a CircPlan file (ZIP or CSV/TXT)"""
+CIRCPLAN_EXPECTED_COLUMNS = [
+    'Key Code', 'SegKey', 'Customer Type', 'List Name', 'Rec', '$',
+    'FREQ', 'Version Type', 'Broker', 'OPT 1', 'OPT 2', 'OPT3',
+    'Gross Qty', 'Quantity Mailed', 'LIST COST', 'Sub-Category',
+    'Campaign_Name', 'Start_Date', 'End_Date'
+]
+
+CIRCPLAN_SERVER = {
+    'hostname': '54.176.67.86',
+    'port': 22,
+    'username': 'eapcprod',
+    'password': '6trKdbLw',
+    'script_dir': '/app/share/Informatica/scripts/bin/CircPlan',
+    'script': 'circ_plan_load_new_v2.sh'
+}
+
+
+def _parse_circplan_content(content_bytes, filename):
+    """Parse a CircPlan CSV/TXT content and run QC checks"""
     try:
-        # Try as ZIP first
-        if filename.lower().endswith('.zip') or zipfile.is_zipfile(io.BytesIO(file_data.read())):
-            file_data.seek(0)
-            return process_zip_file(file_data, filename)
-
-        file_data.seek(0)
-        content = file_data.read()
-
         try:
-            text = content.decode('utf-8')
+            text = content_bytes.decode('utf-8')
         except UnicodeDecodeError:
-            text = content.decode('latin-1')
+            text = content_bytes.decode('latin-1')
 
         lines = text.strip().split('\n')
         if not lines:
-            return {'error': 'Empty file'}
+            return {'filename': filename, 'header': [], 'row_count': 0, 'status': 'error: empty file'}
 
         delimiter = detect_delimiter(lines[0])
         reader = csv.reader([lines[0]], delimiter=delimiter)
         header = [col.strip() for col in next(reader)]
+
+        columns_valid = header == CIRCPLAN_EXPECTED_COLUMNS
+
+        # Key Code null %
+        keycode_null_pct = None
+        data_rows = len(lines) - 1
+        if data_rows > 0 and 'Key Code' in header:
+            kc_idx = header.index('Key Code')
+            kc_null = 0
+            for line in lines[1:]:
+                rdr = csv.reader([line], delimiter=delimiter)
+                try:
+                    row = next(rdr)
+                    if kc_idx >= len(row) or row[kc_idx].strip() == '':
+                        kc_null += 1
+                except StopIteration:
+                    continue
+            keycode_null_pct = round(kc_null / data_rows * 100, 2)
 
         delimiter_display = {
             '|': 'Pipe (|)', ',': 'Comma (,)',
@@ -356,18 +384,34 @@ def process_circplan_file(file_data, filename):
         }.get(delimiter, delimiter)
 
         return {
-            'zip_file': filename,
-            'files': [{
-                'filename': filename,
-                'header': header,
-                'row_count': len(lines),
-                'delimiter': delimiter_display,
-                'columns_valid': None,
-                'custno_null_pct': None,
-                'keycode_null_pct': None,
-                'status': 'success'
-            }]
+            'filename': filename,
+            'header': header,
+            'row_count': len(lines),
+            'delimiter': delimiter_display,
+            'columns_valid': columns_valid,
+            'keycode_null_pct': keycode_null_pct,
+            'status': 'success'
         }
+    except Exception as e:
+        return {'filename': filename, 'header': [], 'row_count': 0, 'status': f'error: {str(e)}'}
+
+
+def process_circplan_file(file_data, filename):
+    """Extract and QC a CircPlan file (ZIP or direct CSV/TXT)"""
+    try:
+        content_bytes = file_data.read()
+
+        if zipfile.is_zipfile(io.BytesIO(content_bytes)):
+            results = []
+            with zipfile.ZipFile(io.BytesIO(content_bytes), 'r') as zf:
+                for inner in zf.namelist():
+                    if inner.endswith('/') or inner.startswith('.'):
+                        continue
+                    with zf.open(inner) as f:
+                        results.append(_parse_circplan_content(f.read(), inner))
+            return {'zip_file': filename, 'files': results}
+
+        return {'zip_file': filename, 'files': [_parse_circplan_content(content_bytes, filename)]}
     except Exception as e:
         return {'error': f'Processing Error: {str(e)}'}
 
@@ -411,6 +455,73 @@ def api_circplan_process_files():
     files = data.get('files', [])
     results = [circplan_download_and_process(f) for f in files]
     return jsonify({'results': results})
+
+
+@app.route('/api/circplan/start-script', methods=['POST'])
+def api_circplan_start_script():
+    if 'logged_in' not in session:
+        return jsonify({'error': 'Not authenticated'}), 401
+    session['cp_script_params'] = request.json
+    return jsonify({'ok': True})
+
+
+@app.route('/api/circplan/stream')
+def api_circplan_stream():
+    if 'logged_in' not in session:
+        return Response('data: {"line":"Not authenticated","done":true}\n\n',
+                        content_type='text/event-stream')
+
+    params = session.get('cp_script_params', {})
+    camp_name    = params.get('camp_name', '').strip()
+    is_ntf       = params.get('is_ntf', 'n').strip()
+    keycode_file = params.get('keycode_file', '').strip()
+    zip_type     = params.get('zip_type', 'combined').strip()
+    mail_file    = params.get('mail_file', '').strip()
+    mail_files   = params.get('mail_files', '').strip()
+
+    # Build all stdin inputs (initial prompts + 'y' for any mid-script confirmations)
+    mail_input = mail_file if zip_type == 'combined' else mail_files
+    stdin_inputs = '\n'.join([camp_name, is_ntf, keycode_file, zip_type,
+                               mail_input, 'y', 'y', 'y', 'y']) + '\n'
+
+    def generate():
+        ssh = None
+        try:
+            yield f"data: {json.dumps({'line': '--- Connecting to server 54.176.67.86 ...'})}\n\n"
+            ssh = paramiko.SSHClient()
+            ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+            ssh.connect(CIRCPLAN_SERVER['hostname'], port=CIRCPLAN_SERVER['port'],
+                        username=CIRCPLAN_SERVER['username'],
+                        password=CIRCPLAN_SERVER['password'], timeout=30)
+
+            yield f"data: {json.dumps({'line': '--- Connected. Launching script...'})}\n\n"
+
+            cmd = (f"cd {CIRCPLAN_SERVER['script_dir']} && "
+                   f"sh {CIRCPLAN_SERVER['script']}")
+            stdin, stdout, stderr = ssh.exec_command(cmd, timeout=3600)
+            stdin.write(stdin_inputs)
+            stdin.channel.shutdown_write()
+
+            for line in iter(stdout.readline, ''):
+                if line:
+                    yield f"data: {json.dumps({'line': line.rstrip()})}\n\n"
+            for line in iter(stderr.readline, ''):
+                if line:
+                    yield f"data: {json.dumps({'line': '[ERR] ' + line.rstrip()})}\n\n"
+
+            exit_code = stdout.channel.recv_exit_status()
+            status = 'completed successfully' if exit_code == 0 else f'exited with code {exit_code}'
+            yield f"data: {json.dumps({'line': f'--- Script {status}', 'done': True})}\n\n"
+        except Exception as e:
+            yield f"data: {json.dumps({'line': f'ERROR: {str(e)}', 'done': True})}\n\n"
+        finally:
+            if ssh:
+                try: ssh.close()
+                except: pass
+
+    return Response(stream_with_context(generate()),
+                    content_type='text/event-stream',
+                    headers={'Cache-Control': 'no-cache', 'X-Accel-Buffering': 'no'})
 
 
 # Set response headers for security
