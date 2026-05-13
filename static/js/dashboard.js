@@ -238,42 +238,45 @@ document.addEventListener('DOMContentLoaded', function() {
                 const body = document.createElement('div');
                 body.className = 'result-body';
                 
+                function inlineBadge(pass) {
+                    return `<span class="${pass ? 'badge-pass' : 'badge-fail'}" style="font-size:0.7rem;padding:0.1rem 0.45rem;">${pass ? 'PASS' : 'FAIL'}</span>`;
+                }
+
+                // Track whether every file in this ZIP passes all rules
+                let allCardPass = result.files.length > 0;
+
                 result.files.forEach(file => {
                     const fileResult = document.createElement('div');
                     fileResult.className = 'file-result';
-                    
+
                     const fileHeader = document.createElement('div');
                     fileHeader.className = 'file-result-header';
-                    
+
                     const fileName = document.createElement('div');
                     fileName.className = 'file-result-name';
                     fileName.textContent = file.filename;
-                    
+
                     const status = document.createElement('div');
                     status.className = file.status === 'success' ? 'status-success' : 'status-error';
                     status.textContent = file.status === 'success' ? '✓ Success' : '✗ ' + file.status;
-                    
+
                     fileHeader.appendChild(fileName);
                     fileHeader.appendChild(status);
-                    
                     fileResult.appendChild(fileHeader);
-                    
+
                     if (file.status === 'success' && file.header && file.header.length > 0) {
                         const headerDisplay = document.createElement('div');
                         headerDisplay.className = 'header-display';
 
-                        // Rule checks (inline, no separate box)
-                        const dataRows = file.row_count > 0 ? file.row_count - 1 : 0;
-                        const rowsPass      = dataRows > 100;
-                        const delimPass     = file.delimiter === 'Comma (,)';
-                        const custnoVal     = file.custno_null_pct !== null && file.custno_null_pct !== undefined ? file.custno_null_pct : null;
-                        const keycodeVal    = file.keycode_null_pct !== null && file.keycode_null_pct !== undefined ? file.keycode_null_pct : null;
-                        const custnoPass    = custnoVal !== null ? custnoVal <= 5 : true;
-                        const keycodePass   = keycodeVal !== null ? keycodeVal <= 5 : true;
+                        const dataRows   = file.row_count > 0 ? file.row_count - 1 : 0;
+                        const rowsPass   = dataRows > 100;
+                        const delimPass  = file.delimiter === 'Comma (,)';
+                        const custnoVal  = file.custno_null_pct != null ? file.custno_null_pct : null;
+                        const keycodeVal = file.keycode_null_pct != null ? file.keycode_null_pct : null;
+                        const custnoPass  = custnoVal !== null ? custnoVal <= 5 : true;
+                        const keycodePass = keycodeVal !== null ? keycodeVal <= 5 : true;
 
-                        function inlineBadge(pass) {
-                            return `<span class="${pass ? 'badge-pass' : 'badge-fail'}" style="font-size:0.7rem;padding:0.1rem 0.45rem;">${pass ? 'PASS' : 'FAIL'}</span>`;
-                        }
+                        if (!(rowsPass && delimPass && custnoPass && keycodePass)) allCardPass = false;
 
                         // Column validation badge
                         const colValidation = document.createElement('div');
@@ -287,17 +290,14 @@ document.addEventListener('DOMContentLoaded', function() {
 
                         const headerGrid = document.createElement('div');
                         headerGrid.className = 'header-grid';
-
                         file.header.forEach(col => {
                             const colDiv = document.createElement('div');
                             colDiv.className = 'header-col';
                             colDiv.textContent = col;
                             headerGrid.appendChild(colDiv);
                         });
-
                         headerDisplay.appendChild(headerGrid);
 
-                        // Stats row with inline PASS/FAIL badges
                         const statsRow = document.createElement('div');
                         statsRow.className = 'stats-row';
                         statsRow.innerHTML = `
@@ -310,25 +310,25 @@ document.addEventListener('DOMContentLoaded', function() {
                             <span class="stat-item">Keycode null: <strong class="${keycodePass ? 'stat-ok' : 'stat-ng'}">${keycodeVal !== null ? keycodeVal + '%' : 'N/A'}</strong> ${inlineBadge(keycodePass)}</span>
                         `;
                         headerDisplay.appendChild(statsRow);
-
-                        // Load button — only if all 4 rules pass
-                        const allMfPass = rowsPass && delimPass && custnoPass && keycodePass;
-                        if (allMfPass) {
-                            const loadWrap = document.createElement('div');
-                            loadWrap.style.marginTop = '1rem';
-                            const loadBtn = document.createElement('button');
-                            loadBtn.className = 'btn-success mf-load-trigger';
-                            loadBtn.style.width = '100%';
-                            loadBtn.textContent = 'Load';
-                            loadWrap.appendChild(loadBtn);
-                            headerDisplay.appendChild(loadWrap);
-                        }
-
                         fileResult.appendChild(headerDisplay);
+                    } else {
+                        allCardPass = false;
                     }
 
                     body.appendChild(fileResult);
                 });
+
+                // Single Load button per ZIP — only if every file passed
+                if (allCardPass) {
+                    const loadWrap = document.createElement('div');
+                    loadWrap.style.padding = '1rem 0 0.25rem';
+                    const loadBtn = document.createElement('button');
+                    loadBtn.className = 'btn-success mf-load-trigger';
+                    loadBtn.style.width = '100%';
+                    loadBtn.textContent = 'Load';
+                    loadWrap.appendChild(loadBtn);
+                    body.appendChild(loadWrap);
+                }
 
                 card.appendChild(header);
                 card.appendChild(body);
