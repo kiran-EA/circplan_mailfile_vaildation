@@ -141,9 +141,9 @@ document.addEventListener('DOMContentLoaded', function() {
     }
 
     function estimateSeconds(totalBytes) {
-        // ~2 MB/s for SFTP download + processing
-        const est = Math.ceil(totalBytes / (2 * 1024 * 1024));
-        return Math.max(10, Math.ceil(est / 5) * 5);  // round up to nearest 5, min 10s
+        // ~100 KB/s actual observed SFTP speed on this server
+        const est = Math.ceil(totalBytes / (100 * 1024));
+        return Math.max(15, Math.ceil(est / 30) * 30);  // round to nearest 30s, min 15s
     }
 
     function formatTime(seconds) {
