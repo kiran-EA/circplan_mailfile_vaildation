@@ -74,7 +74,7 @@ def get_sftp_connection():
         transport.packetizer.REKEY_BYTES = pow(2, 40)  # disable rekey during transfer
 
         sftp = ssh.open_sftp()
-        sftp.get_channel().settimeout(300)  # 5 min timeout per operation
+        sftp.get_channel().settimeout(None)  # no timeout — keepalive handles drops
         return ssh, sftp
     except Exception as e:
         raise Exception(f"SFTP Connection Error: {str(e)}")
@@ -124,14 +124,7 @@ def download_and_process_file(remote_path, filename, retries=3):
             ssh, sftp = get_sftp_connection()
             remote_file_path = f"{remote_path}/{filename}"
             file_data = io.BytesIO()
-            # prefetch pipelines SSH read requests — much faster than getfo() for large files
-            with sftp.open(remote_file_path, 'rb') as remote_file:
-                remote_file.prefetch()
-                while True:
-                    chunk = remote_file.read(1024 * 1024)  # 1 MB chunks
-                    if not chunk:
-                        break
-                    file_data.write(chunk)
+            sftp.getfo(remote_file_path, file_data)
             file_data.seek(0)
 
             if filename.lower().endswith('.zip'):
@@ -466,13 +459,7 @@ def circplan_download_and_process(filename, retries=3):
         try:
             ssh, sftp = get_sftp_connection()
             file_data = io.BytesIO()
-            with sftp.open(f"{remote_path}/{filename}", 'rb') as remote_file:
-                remote_file.prefetch()
-                while True:
-                    chunk = remote_file.read(1024 * 1024)
-                    if not chunk:
-                        break
-                    file_data.write(chunk)
+            sftp.getfo(f"{remote_path}/{filename}", file_data)
             file_data.seek(0)
             return process_circplan_file(file_data, filename)
         except Exception as e:
