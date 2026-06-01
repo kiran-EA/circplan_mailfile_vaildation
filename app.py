@@ -588,6 +588,118 @@ def api_mailfile_stream():
                     headers={'Cache-Control': 'no-cache', 'X-Accel-Buffering': 'no'})
 
 
+# ==================== SERVER TERMINAL ====================
+
+def _ssh_connect():
+    ssh = paramiko.SSHClient()
+    ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+    ssh.connect(CIRCPLAN_SERVER['hostname'], port=CIRCPLAN_SERVER['port'],
+                username=CIRCPLAN_SERVER['username'],
+                password=CIRCPLAN_SERVER['password'], timeout=15)
+    return ssh
+
+
+@app.route('/server-terminal')
+def server_terminal():
+    if 'logged_in' not in session:
+        return redirect(url_for('login'))
+    return render_template('server_terminal.html', username=session.get('username', ''))
+
+
+@app.route('/api/server/ls')
+def api_server_ls():
+    if 'logged_in' not in session:
+        return jsonify({'error': 'Not authenticated'}), 401
+    path = request.args.get('path', '/app/share/Informatica/scripts/bin').strip()
+    try:
+        ssh = _ssh_connect()
+        cmd = f"ls -la {path!r} 2>&1"
+        _, stdout, _ = ssh.exec_command(cmd)
+        raw = stdout.read().decode(errors='replace')
+        ssh.close()
+
+        entries = []
+        for line in raw.splitlines():
+            if line.startswith('total') or not line.strip():
+                continue
+            parts = line.split(None, 8)
+            if len(parts) < 9:
+                continue
+            perms, _, _, _, size, month, day, time_or_year, name = parts
+            is_dir = perms.startswith('d')
+            is_hidden = name.startswith('.')
+            entries.append({
+                'name': name,
+                'is_dir': is_dir,
+                'is_hidden': is_hidden,
+                'size': size,
+                'modified': f"{month} {day} {time_or_year}",
+                'perms': perms,
+            })
+        return jsonify({'path': path, 'entries': entries})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/server/cat')
+def api_server_cat():
+    if 'logged_in' not in session:
+        return jsonify({'error': 'Not authenticated'}), 401
+    path = request.args.get('path', '').strip()
+    if not path:
+        return jsonify({'error': 'No path provided'}), 400
+    try:
+        ssh = _ssh_connect()
+        _, stdout, stderr = ssh.exec_command(f"cat {path!r} 2>&1 | head -500")
+        content = stdout.read().decode(errors='replace')
+        ssh.close()
+        return jsonify({'path': path, 'content': content})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/server/search')
+def api_server_search():
+    if 'logged_in' not in session:
+        return jsonify({'error': 'Not authenticated'}), 401
+    base = request.args.get('path', '/app/share/Informatica/scripts/bin').strip()
+    query = request.args.get('q', '').strip()
+    if not query:
+        return jsonify({'error': 'No search query'}), 400
+    try:
+        ssh = _ssh_connect()
+        cmd = f"find {base!r} -maxdepth 3 -name {('*'+query+'*')!r} 2>/dev/null | head -100"
+        _, stdout, _ = ssh.exec_command(cmd)
+        results = [l.strip() for l in stdout.read().decode(errors='replace').splitlines() if l.strip()]
+        ssh.close()
+        return jsonify({'results': results})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/server/exec', methods=['POST'])
+def api_server_exec():
+    if 'logged_in' not in session:
+        return jsonify({'error': 'Not authenticated'}), 401
+    data = request.json or {}
+    cmd = data.get('cmd', '').strip()
+    if not cmd:
+        return jsonify({'error': 'No command'}), 400
+    # block destructive commands
+    blocked = ['rm ', 'rmdir', 'mkfs', '> /', 'dd if', 'chmod 777 /', 'chown']
+    if any(b in cmd for b in blocked):
+        return jsonify({'error': 'Command blocked for safety'}), 403
+    try:
+        ssh = _ssh_connect()
+        _, stdout, stderr = ssh.exec_command(cmd, timeout=30)
+        out = stdout.read().decode(errors='replace')
+        err = stderr.read().decode(errors='replace')
+        ssh.close()
+        return jsonify({'output': out + (('\n[stderr]: ' + err) if err.strip() else '')})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
 # Set response headers for security
 @app.after_request
 def add_security_headers(response):
