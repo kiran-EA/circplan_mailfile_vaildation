@@ -124,7 +124,14 @@ def download_and_process_file(remote_path, filename, retries=3):
             ssh, sftp = get_sftp_connection()
             remote_file_path = f"{remote_path}/{filename}"
             file_data = io.BytesIO()
-            sftp.getfo(remote_file_path, file_data)
+            # prefetch pipelines SSH read requests — much faster than getfo() for large files
+            with sftp.open(remote_file_path, 'rb') as remote_file:
+                remote_file.prefetch()
+                while True:
+                    chunk = remote_file.read(1024 * 1024)  # 1 MB chunks
+                    if not chunk:
+                        break
+                    file_data.write(chunk)
             file_data.seek(0)
 
             if filename.lower().endswith('.zip'):
@@ -459,7 +466,13 @@ def circplan_download_and_process(filename, retries=3):
         try:
             ssh, sftp = get_sftp_connection()
             file_data = io.BytesIO()
-            sftp.getfo(f"{remote_path}/{filename}", file_data)
+            with sftp.open(f"{remote_path}/{filename}", 'rb') as remote_file:
+                remote_file.prefetch()
+                while True:
+                    chunk = remote_file.read(1024 * 1024)
+                    if not chunk:
+                        break
+                    file_data.write(chunk)
             file_data.seek(0)
             return process_circplan_file(file_data, filename)
         except Exception as e:
