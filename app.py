@@ -7,11 +7,17 @@ import os
 import io
 import zipfile
 import csv
+import uuid
+import threading
 from datetime import datetime
 from flask import Flask, render_template, request, jsonify, session, redirect, url_for, Response, stream_with_context
 import json
 import paramiko
 import pandas as pd
+
+# In-memory job store: {job_id: {'status': 'running'|'done'|'error', 'results': [...], 'progress': 'msg'}}
+_jobs = {}
+_jobs_lock = threading.Lock()
 
 app = Flask(__name__)
 app.secret_key = os.environ.get('FLASK_SECRET_KEY', 'lampsplus-local-dev-key-2026')
@@ -309,20 +315,40 @@ def api_list_files():
 
 @app.route('/api/process-files', methods=['POST'])
 def api_process_files():
-    """API endpoint to process selected files"""
     if 'logged_in' not in session:
         return jsonify({'error': 'Not authenticated'}), 401
 
     data = request.json
     files = data.get('files', [])
     remote_path = data.get('path', '/FromLP/Catalog Mail Files')
+    job_id = str(uuid.uuid4())
 
-    results = []
-    for filename in files:
-        result = download_and_process_file(remote_path, filename)
-        results.append(result)
+    with _jobs_lock:
+        _jobs[job_id] = {'status': 'running', 'results': [], 'progress': f'Starting ({len(files)} file(s))...'}
 
-    return jsonify({'results': results})
+    def run():
+        results = []
+        for i, filename in enumerate(files):
+            with _jobs_lock:
+                _jobs[job_id]['progress'] = f'Downloading {filename} ({i+1}/{len(files)})...'
+            result = download_and_process_file(remote_path, filename)
+            results.append(result)
+        with _jobs_lock:
+            _jobs[job_id] = {'status': 'done', 'results': results, 'progress': 'Complete'}
+
+    threading.Thread(target=run, daemon=True).start()
+    return jsonify({'job_id': job_id})
+
+
+@app.route('/api/job-status/<job_id>')
+def api_job_status(job_id):
+    if 'logged_in' not in session:
+        return jsonify({'error': 'Not authenticated'}), 401
+    with _jobs_lock:
+        job = _jobs.get(job_id)
+    if not job:
+        return jsonify({'error': 'Job not found'}), 404
+    return jsonify(job)
 
 
 # ==================== CIRCPLAN ROUTES ====================
@@ -461,8 +487,22 @@ def api_circplan_process_files():
         return jsonify({'error': 'Not authenticated'}), 401
     data = request.json
     files = data.get('files', [])
-    results = [circplan_download_and_process(f) for f in files]
-    return jsonify({'results': results})
+    job_id = str(uuid.uuid4())
+
+    with _jobs_lock:
+        _jobs[job_id] = {'status': 'running', 'results': [], 'progress': f'Starting ({len(files)} file(s))...'}
+
+    def run():
+        results = []
+        for i, f in enumerate(files):
+            with _jobs_lock:
+                _jobs[job_id]['progress'] = f'Downloading {f} ({i+1}/{len(files)})...'
+            results.append(circplan_download_and_process(f))
+        with _jobs_lock:
+            _jobs[job_id] = {'status': 'done', 'results': results, 'progress': 'Complete'}
+
+    threading.Thread(target=run, daemon=True).start()
+    return jsonify({'job_id': job_id})
 
 
 @app.route('/api/circplan/start-script', methods=['POST'])

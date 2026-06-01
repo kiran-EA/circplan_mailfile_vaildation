@@ -191,12 +191,39 @@ document.addEventListener('DOMContentLoaded', function() {
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ files: selectedFiles, path: '/FromLP/Catalog Mail Files' })
             });
+            const { job_id, error } = await response.json();
+            if (error) throw new Error(error);
 
-            const data = await response.json();
-            displayResults(data.results);
-            resultsContainer.style.display = 'block';
-            resultsContainer.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            // Poll for job completion
+            while (true) {
+                await new Promise(r => setTimeout(r, 3000));
+                const poll = await fetch(`/api/job-status/${job_id}`);
+                const job  = await poll.json();
+                const el = document.getElementById('elapsedTimer');
 
+                if (job.progress) {
+                    const bar = document.getElementById('processingStatusBar');
+                    if (bar) {
+                        bar.innerHTML = `
+                            <span class="proc-label">Estimated: <strong>~${formatTime(estSecs)}</strong></span>
+                            <span class="proc-sep">·</span>
+                            <span class="proc-label">Elapsed: <strong id="elapsedTimer">${formatTime(elapsed)}</strong></span>
+                            <span class="proc-sep">·</span>
+                            <span class="proc-label" style="color:#2563eb;">${job.progress}</span>`;
+                    }
+                }
+
+                if (job.status === 'done') {
+                    displayResults(job.results);
+                    resultsContainer.style.display = 'block';
+                    resultsContainer.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                    break;
+                }
+                if (job.status === 'error') {
+                    alert('Processing error: ' + (job.error || 'Unknown error'));
+                    break;
+                }
+            }
         } catch (error) {
             alert('Error processing files: ' + error.message);
         } finally {
@@ -550,10 +577,34 @@ document.addEventListener('DOMContentLoaded', function() {
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ files: cpSelectedFiles })
             });
-            const data = await response.json();
-            cpDisplayResults(data.results);
-            cpResultsContainer.style.display = 'block';
-            cpResultsContainer.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            const { job_id, error } = await response.json();
+            if (error) throw new Error(error);
+
+            while (true) {
+                await new Promise(r => setTimeout(r, 3000));
+                const poll = await fetch(`/api/job-status/${job_id}`);
+                const job  = await poll.json();
+
+                if (job.progress) {
+                    cpStatusBar.innerHTML = `
+                        <span class="proc-label">Estimated: <strong>~${formatTime(estSecs)}</strong></span>
+                        <span class="proc-sep">·</span>
+                        <span class="proc-label">Elapsed: <strong id="cpElapsedTimer">${formatTime(elapsed)}</strong></span>
+                        <span class="proc-sep">·</span>
+                        <span class="proc-label" style="color:#2563eb;">${job.progress}</span>`;
+                }
+
+                if (job.status === 'done') {
+                    cpDisplayResults(job.results);
+                    cpResultsContainer.style.display = 'block';
+                    cpResultsContainer.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                    break;
+                }
+                if (job.status === 'error') {
+                    alert('Processing error: ' + (job.error || 'Unknown error'));
+                    break;
+                }
+            }
         } catch (err) {
             alert('Error: ' + err.message);
         } finally {
